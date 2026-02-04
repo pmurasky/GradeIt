@@ -1,0 +1,28 @@
+# Ignore Python virtual environment
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore cloned student repositories
+assignments/
+*/GradedHomework/
+
+# Ignore sensitive config (if using .env)
+.env
+
+# Ignore output files
+*.log
+feedback_report.md
