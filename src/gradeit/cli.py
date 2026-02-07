@@ -185,14 +185,17 @@ class GradingManager:
             return
 
         pipeline = GradingPipeline(ctx)
+        MessageHandler.log(ctx, f"Grading {len(successful_clones)} repositories")
         
         with tqdm(total=len(successful_clones), desc="Grading", unit="student") as pbar:
             for result in successful_clones:
                 pbar.set_postfix_str(f"Student: {result.student.username}", refresh=True)
                 try:
+                    MessageHandler.log(ctx, f"Processing {result.student.username} at {result.repo_path}")
                     pipeline.process_student(result.student, result.repo_path)
                 except Exception as e:
                     click.echo(f"  ✗ Error grading {result.student.username}: {e}")
+                    MessageHandler.log(ctx, f"Error details: {e}")
                 pbar.update(1)
 
 
@@ -202,18 +205,21 @@ class GradingManager:
 @click.option('--config', '-c', default='config.properties', type=click.Path(), help='Config file')
 @click.option('--max-grade', '-m', type=int, help='Max grade')
 @click.option('--passing-grade', '-p', type=int, help='Passing grade')
-def main(assignment: str, solution: str, config: str, max_grade: int, passing_grade: int):
+@click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
+def main(assignment: str, solution: str, config: str, max_grade: int, passing_grade: int, verbose: bool):
     """GradeIt CLI Entry Point."""
-    click.echo("🎓 GradeIt - AI-Powered Assignment Grading System")
-    click.echo("=" * 50)
+    MessageHandler.print_welcome()
     
     try:
         cfg = ConfigLoader(config)
         ctx = GradingContext(
             assignment, solution, cfg,
             max_grade if max_grade is not None else cfg.get_int('max_grade', 100),
-            passing_grade if passing_grade is not None else cfg.get_int('passing_grade', 60)
+            passing_grade if passing_grade is not None else cfg.get_int('passing_grade', 60),
+            verbose
         )
+        
+        MessageHandler.print_config(ctx)
         
         students = GradingManager.load_students(ctx)
         clone_results = GradingManager.clone_repos(ctx, students)
@@ -221,6 +227,9 @@ def main(assignment: str, solution: str, config: str, max_grade: int, passing_gr
         
     except Exception as e:
         click.echo(f"\n✗ Error: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
         sys.exit(1)
 
 if __name__ == '__main__':
