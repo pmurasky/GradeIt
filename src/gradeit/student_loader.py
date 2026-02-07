@@ -4,113 +4,101 @@ Reads and parses student information from students.txt file.
 """
 
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 from dataclasses import dataclass
+
+
+class StudentNameParser:
+    """Parses student group names into components."""
+    
+    @staticmethod
+    def parse(group_name: str) -> Tuple[str, str, str, str]:
+        """
+        Parse a group name into (username, semester, course, section).
+        
+        Args:
+            group_name: Full GitLab group name
+            
+        Returns:
+            Tuple of (username, semester, course, section)
+            
+        Raises:
+            ValueError: If format is invalid
+        """
+        parts = group_name.strip().split('-')
+        if len(parts) < 4:
+            raise ValueError(f"Invalid group name format: '{group_name}'")
+            
+        username_parts, remaining = StudentNameParser._extract_username(parts)
+        if not username_parts:
+             # Fallback: assume first part is username
+            username_parts = [parts[0]]
+            remaining = parts[1:]
+            
+        username = '-'.join(username_parts)
+        
+        semester, course, section = StudentNameParser._parse_remaining(remaining)
+        
+        return username, semester, course, section
+
+    @staticmethod
+    def _extract_username(parts: List[str]) -> Tuple[List[str], List[str]]:
+        """Extract username components based on year position."""
+        for i, part in enumerate(parts):
+            if part.isdigit() and len(part) == 4:
+                return parts[:i], parts[i:]
+        return [], parts
+
+    @staticmethod
+    def _parse_remaining(parts: List[str]) -> Tuple[str, str, str]:
+        """Parse semester, course, and section from remaining parts."""
+        if len(parts) >= 5:
+            # year, sem_name, course_name, course_num, section
+            year, sem, c_name, c_num, sect = parts[0], parts[1], parts[2], parts[3], parts[4]
+            return f"{year}-{sem}", f"{c_name}-{c_num}", sect
+            
+        if len(parts) == 4:
+            # year, sem_name, course, section
+            year, sem, course, sect = parts[0], parts[1], parts[2], parts[3]
+            return f"{year}-{sem}", course, sect
+            
+        raise ValueError("Could not parse semester/course/section information.")
 
 
 @dataclass
 class Student:
     """Represents a student with their GitLab group information."""
     
-    group_name: str  # Full group name (e.g., mawall-2026-winter-cis-271-01)
-    username: str    # Extracted username (e.g., mawall)
-    semester: str    # Semester (e.g., 2026-winter)
-    course: str      # Course (e.g., cis-271)
-    section: str     # Section (e.g., 01)
+    group_name: str
+    username: str
+    semester: str
+    course: str
+    section: str
     
     @classmethod
     def from_group_name(cls, group_name: str) -> 'Student':
-        """
-        Create a Student from a group name.
-        
-        Expected format: <username>-<year>-<semester>-<course>-<coursenumber>-<section>
-        Example: mawall-2026-winter-cis-271-01
-        
-        Args:
-            group_name: Full GitLab group name
-            
-        Returns:
-            Student object
-            
-        Raises:
-            ValueError: If group name format is invalid
-        """
-        parts = group_name.strip().split('-')
-        
-        if len(parts) < 5:
-            raise ValueError(
-                f"Invalid group name format: '{group_name}'. "
-                f"Expected format: <username>-<year>-<semester>-<course>-<section>"
+        """Create a Student from a group name."""
+        try:
+            user, sem, course, section = StudentNameParser.parse(group_name)
+            return cls(
+                group_name=group_name.strip(),
+                username=user,
+                semester=sem,
+                course=course,
+                section=section
             )
-        
-        # Handle usernames that might contain spaces or special characters
-        # The format is: username-year-semester-course-coursenumber-section
-        # We need to find where the year starts (4 digits)
-        username_parts = []
-        remaining_parts = parts.copy()
-        
-        for i, part in enumerate(parts):
-            if part.isdigit() and len(part) == 4:
-                # Found the year, everything before is username
-                username_parts = parts[:i]
-                remaining_parts = parts[i:]
-                break
-        
-        if not username_parts:
-            # Fallback: assume first part is username
-            username_parts = [parts[0]]
-            remaining_parts = parts[1:]
-        
-        username = '-'.join(username_parts)
-        
-        # Parse remaining parts: year-semester-course-coursenumber-section
-        # The course is typically: cis-271, so we need at least 5 parts
-        if len(remaining_parts) >= 5:
-            year = remaining_parts[0]
-            semester_name = remaining_parts[1]
-            course_name = remaining_parts[2]
-            course_number = remaining_parts[3]
-            section = remaining_parts[4]
-            
-            semester = f"{year}-{semester_name}"
-            course = f"{course_name}-{course_number}"
-        elif len(remaining_parts) == 4:
-            # Handle case where course doesn't have a number (unlikely but possible)
-            year = remaining_parts[0]
-            semester_name = remaining_parts[1]
-            course = remaining_parts[2]
-            section = remaining_parts[3]
-            
-            semester = f"{year}-{semester_name}"
-        else:
-            raise ValueError(
-                f"Invalid group name format: '{group_name}'. "
-                f"Could not parse semester/course/section information."
-            )
-        
-        return cls(
-            group_name=group_name.strip(),
-            username=username,
-            semester=semester,
-            course=course,
-            section=section
-        )
-    
+        except ValueError as e:
+            # Re-raise with original context if needed, or just let it bubble
+            # Adding context for clarity if it was a generic error
+            if "Invalid group name" not in str(e):
+                 raise ValueError(f"Invalid group name format: '{group_name}'") from e
+            raise
+
     def get_repo_url(self, gitlab_host: str, assignment: str) -> str:
-        """
-        Get the GitLab repository URL for this student's assignment.
-        
-        Args:
-            gitlab_host: GitLab server hostname (e.g., gitlab.hfcc.edu)
-            assignment: Assignment name (e.g., fizzbuzz)
-            
-        Returns:
-            SSH URL for the repository
-        """
+        """Get the GitLab repository URL."""
         return f"git@{gitlab_host}:{self.group_name}/{assignment}.git"
     
     def __repr__(self) -> str:
-        """String representation of the student."""
         return f"Student(username='{self.username}', group='{self.group_name}')"
 
 
@@ -118,25 +106,10 @@ class StudentLoader:
     """Loads student data from students.txt file."""
     
     def __init__(self, students_file: str):
-        """
-        Initialize the student loader.
-        
-        Args:
-            students_file: Path to the students.txt file
-        """
         self.students_file = Path(students_file)
     
     def load_students(self) -> List[Student]:
-        """
-        Load all students from the students.txt file.
-        
-        Returns:
-            List of Student objects
-            
-        Raises:
-            FileNotFoundError: If students.txt doesn't exist
-            ValueError: If any student group name is invalid
-        """
+        """Load all students from the students.txt file."""
         if not self.students_file.exists():
             raise FileNotFoundError(f"Students file not found: {self.students_file}")
         
@@ -145,27 +118,26 @@ class StudentLoader:
         
         with open(self.students_file, 'r') as f:
             for line_num, line in enumerate(f, start=1):
-                line = line.strip()
-                
-                # Skip empty lines and comments
-                if not line or line.startswith('#'):
-                    continue
-                
-                # Remove trailing periods or other punctuation
-                line = line.rstrip('.')
-                
-                try:
-                    student = Student.from_group_name(line)
+                if student := self._parse_line(line, line_num, errors):
                     students.append(student)
-                except ValueError as e:
-                    errors.append(f"Line {line_num}: {e}")
         
         if errors:
-            error_msg = "Errors parsing students file:\n" + "\n".join(errors)
-            raise ValueError(error_msg)
+            raise ValueError("Errors parsing students file:\n" + "\n".join(errors))
         
         return students
+
+    def _parse_line(self, line: str, line_num: int, errors: List[str]) -> Student | None:
+        """Parse a single line from the file."""
+        line = line.strip()
+        if not line or line.startswith('#'):
+            return None
+            
+        line = line.rstrip('.')
+        try:
+            return Student.from_group_name(line)
+        except ValueError as e:
+            errors.append(f"Line {line_num}: {e}")
+            return None
     
     def __repr__(self) -> str:
-        """String representation of the loader."""
         return f"StudentLoader(file='{self.students_file}')"

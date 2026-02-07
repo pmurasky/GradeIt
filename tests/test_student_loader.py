@@ -5,7 +5,22 @@ Unit tests for StudentLoader
 import pytest
 import tempfile
 from pathlib import Path
-from src.gradeit.student_loader import Student, StudentLoader
+from src.gradeit.student_loader import Student, StudentLoader, StudentNameParser
+
+
+class TestStudentNameParser:
+    """Test cases for StudentNameParser."""
+    
+    def test_parse_valid(self):
+        user, sem, course, sect = StudentNameParser.parse("mawall-2026-winter-cis-271-01")
+        assert user == "mawall"
+        assert sem == "2026-winter"
+        assert course == "cis-271"
+        assert sect == "01"
+
+    def test_parse_invalid_length(self):
+        with pytest.raises(ValueError):
+            StudentNameParser.parse("short-name")
 
 
 class TestStudent:
