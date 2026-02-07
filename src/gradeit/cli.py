@@ -5,6 +5,8 @@ Command-line interface for GradeIt.
 import click
 from pathlib import Path
 from .config_loader import ConfigLoader
+from .student_loader import StudentLoader
+from .repo_cloner import RepositoryCloner
 
 
 @click.command()
@@ -73,8 +75,51 @@ def main(assignment: str, solution: str, config: str, max_grade: int, passing_gr
     click.echo("\n" + "=" * 50)
     click.echo("Starting grading process...\n")
     
-    # TODO: Implement grading workflow
-    click.echo("⚠ Grading workflow not yet implemented")
+    # Initialize components
+    try:
+        # Load students
+        click.echo("Running: Loading student data...")
+        students_file = cfg.get('students_file')
+        if not students_file:
+            raise ValueError("students_file not defined in config")
+            
+        student_loader = StudentLoader(students_file)
+        students = student_loader.load_students()
+        click.echo(f"✓ Loaded {len(students)} students")
+        
+        # Initialize cloner
+        base_dir = cfg.get('base_directory')
+        if not base_dir:
+            raise ValueError("base_directory not defined in config")
+        
+        # Resolve config path relative to config file if base_directory uses relative path
+        # But ConfigLoader handles absolute path expansion if configured correctly
+        # Here we trust ConfigLoader's substitution
+            
+        gitlab_host = cfg.get('gitlab_host', 'gitlab.hfcc.edu')
+        cloner = RepositoryCloner(base_dir, gitlab_host)
+        
+        # Clone repositories
+        click.echo(f"Running: Cloning repositories for {assignment}...")
+        results = cloner.clone_all_repos(students, assignment)
+        
+        # Display summary
+        summary = cloner.get_clone_summary(results)
+        click.echo("\nClone Summary:")
+        click.echo(f"Total: {summary['total']}")
+        click.echo(f"Successful: {summary['successful']}")
+        click.echo(f"Failed: {summary['failed']}")
+        click.echo(f"Success Rate: {summary['success_rate']:.1f}%")
+        
+        if summary['failed'] > 0:
+            click.echo("\nFailed Clones:")
+            for result in results:
+                if not result.success:
+                    click.echo(f"✗ {result.student.username}: {result.error}")
+            
+    except Exception as e:
+        click.echo(f"\n✗ Error during execution: {e}", err=True)
+        return 1
     
     return 0
 
