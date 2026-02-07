@@ -1,0 +1,81 @@
+"""
+Unit tests for Feedback Generation module.
+"""
+
+import pytest
+from pathlib import Path
+from src.gradeit.student_loader import Student
+from src.gradeit.gradle_runner import BuildResult
+from src.gradeit.test_parser import ExecutionSummary
+from src.gradeit.ai_grader import GradingResult
+from src.gradeit.feedback_generator import MarkdownRenderer, FeedbackGenerator
+
+
+@pytest.fixture
+def sample_data():
+    student = Student("group", "user", "2024", "cis", "01")
+    build = BuildResult(True, "Build Success")
+    tests = ExecutionSummary(10, 8, 2, 0)
+    ai = GradingResult(
+        score=90, 
+        feedback="Good code", 
+        suggestions=["Fix indent"], 
+        confidence=0.9
+    )
+    return student, build, tests, ai
+
+
+class TestMarkdownRenderer:
+    """Tests for MarkdownRenderer."""
+
+    def test_render_header(self, sample_data):
+        student = sample_data[0]
+        output = MarkdownRenderer.render_header(student)
+        assert f"# Grading Report: {student.username}" in output
+        assert f"**Group**: {student.group_name}" in output
+
+    def test_render_build_status(self, sample_data):
+        build = sample_data[1]
+        output = MarkdownRenderer.render_build_status(build)
+        assert "## Build Status: ✅" in output
+        assert "Build Success" in output
+
+    def test_render_test_results(self, sample_data):
+        tests = sample_data[2]
+        output = MarkdownRenderer.render_test_results(tests)
+        assert "## Test Results" in output
+        assert "Passed**: 8/10" in output
+        assert "Score**: 80.0%" in output
+
+    def test_render_ai_feedback(self, sample_data):
+        ai = sample_data[3]
+        output = MarkdownRenderer.render_ai_feedback(ai)
+        assert "## AI Feedback" in output
+        assert "AI Score**: 90/100" in output
+        assert "- Fix indent" in output
+
+
+class TestFeedbackGenerator:
+    """Tests for FeedbackGenerator."""
+
+    def test_generate_report(self, tmp_path, sample_data):
+        generator = FeedbackGenerator(str(tmp_path))
+        student, build, tests, ai = sample_data
+        
+        report = generator.generate_report(student, build, tests, ai)
+        
+        assert "# Grading Report" in report
+        assert "## Build Status" in report
+        assert "## Test Results" in report
+        assert "## AI Feedback" in report
+
+    def test_save_report(self, tmp_path, sample_data):
+        generator = FeedbackGenerator(str(tmp_path))
+        student = sample_data[0]
+        report_content = "# Report Content"
+        
+        path = generator.save_report(student, "assign1", report_content)
+        
+        assert path.exists()
+        assert path.read_text() == report_content
+        assert path.name == f"{student.username}_assign1_report.md"

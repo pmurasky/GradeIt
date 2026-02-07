@@ -4,11 +4,17 @@ Command-line interface for GradeIt.
 
 import click
 import sys
-from typing import List
+import os
+from pathlib import Path
+from typing import List, Dict
 from dataclasses import dataclass
 from .config_loader import ConfigLoader
 from .student_loader import StudentLoader, Student
 from .repo_cloner import RepositoryCloner, CloneResult
+from .gradle_runner import GradleRunner, BuildResult
+from .test_parser import TestResultParser, ExecutionSummary
+from .ai_grader import GradingAssistant, AnthropicClient
+from .feedback_generator import FeedbackGenerator, GradingResult
 
 
 @dataclass
@@ -25,51 +31,67 @@ class GradingContext:
         return self.config.get('students_file')
         
     @property
-    def base_directory(self) -> str | None:
-        return self.config.get('base_directory')
+    def base_directory(self) -> Path:
+        return Path(self.config.get('base_directory', 'repos'))
+    
+    @property
+    def output_directory(self) -> Path:
+        return Path(self.config.get('output_directory', 'reports'))
         
     @property
     def gitlab_host(self) -> str:
         return self.config.get('gitlab_host', 'gitlab.hfcc.edu')
 
 
-class MessageHandler:
-    """Handles CLI output messages."""
+class SourceCodeReader:
+    """Reads source code for AI analysis."""
     
     @staticmethod
-    def print_welcome():
-        """Print welcome message."""
-        click.echo("🎓 GradeIt - AI-Powered Assignment Grading System")
-        click.echo("=" * 50)
+    def read_files(path: Path, extension: str = ".java") -> Dict[str, str]:
+        """Read all files with extension in path."""
+        code_files = {}
+        if not path.exists():
+            return code_files
+            
+        for file_path in path.rglob(f"*{extension}"):
+            try:
+                content = file_path.read_text(errors='replace')
+                code_files[file_path.name] = content
+            except Exception:
+                pass # Skip unreadable files
+        return code_files
 
-    @staticmethod
-    def print_config(ctx: GradingContext):
-        """Print configuration summary."""
-        click.echo(f"\nAssignment: {ctx.assignment}")
-        click.echo(f"Solution: {ctx.solution}")
-        click.echo(f"Max Grade: {ctx.max_grade}")
-        click.echo(f"Passing Grade: {ctx.passing_grade}")
-        click.echo(f"Students File: {ctx.students_file}")
-        click.echo(f"Output Directory: {ctx.config.get('output_directory')}")
-        click.echo(f"GitLab Host: {ctx.gitlab_host}")
-        click.echo("\n" + "=" * 50)
-        click.echo("Starting grading process...\n")
 
-    @staticmethod
-    def print_clone_summary(results: List[CloneResult], cloner: RepositoryCloner):
-        """Print clone results summary."""
-        summary = cloner.get_clone_summary(results)
-        click.echo("\nClone Summary:")
-        click.echo(f"Total: {summary['total']}")
-        click.echo(f"Successful: {summary['successful']}")
-        click.echo(f"Failed: {summary['failed']}")
-        click.echo(f"Success Rate: {summary['success_rate']:.1f}%")
+class GradingPipeline:
+    """Executes grading steps for a single student."""
+    
+    def __init__(self, ctx: GradingContext):
+        self.ctx = ctx
+        self.gradle = GradleRunner()
+        self.parser = TestResultParser()
+        self.ai = GradingAssistant(AnthropicClient())
+        self.feedback = FeedbackGenerator(str(ctx.output_directory))
         
-        if summary['failed'] > 0:
-            click.echo("\nFailed Clones:")
-            for result in results:
-                if not result.success:
-                    click.echo(f"✗ {result.student.username}: {result.error}")
+    def process_student(self, student: Student, repo_path: Path):
+        """Run full grading pipeline for a student."""
+        click.echo(f"Processing {student.username}...")
+        
+        # 1. Build
+        build_result = self.gradle.run_build(repo_path)
+        
+        # 2. Test Results
+        test_summary = self.parser.parse_results(repo_path)
+        
+        # 3. AI Grading
+        code = SourceCodeReader.read_files(repo_path / "src/main")
+        # Read requirements from solution dir if available, else generic
+        reqs = "Review code for best practices and correctness."
+        ai_result = self.ai.grade_assignment(code, reqs)
+        
+        # 4. Feedback
+        report = self.feedback.generate_report(student, build_result, test_summary, ai_result)
+        path = self.feedback.save_report(student, self.ctx.assignment, report)
+        click.echo(f"  ✓ Report saved: {path.name}")
 
 
 class GradingManager:
@@ -81,7 +103,6 @@ class GradingManager:
         click.echo("Running: Loading student data...")
         if not ctx.students_file:
              raise ValueError("students_file not defined in config")
-             
         loader = StudentLoader(ctx.students_file)
         students = loader.load_students()
         click.echo(f"✓ Loaded {len(students)} students")
@@ -90,15 +111,26 @@ class GradingManager:
     @staticmethod
     def clone_repos(ctx: GradingContext, students: List[Student]) -> List[CloneResult]:
         """Clone student repositories."""
-        if not ctx.base_directory:
-            raise ValueError("base_directory not defined in config")
-            
-        cloner = RepositoryCloner(ctx.base_directory, ctx.gitlab_host)
-        click.echo(f"Running: Cloning repositories for {ctx.assignment}...")
-        
+        cloner = RepositoryCloner(str(ctx.base_directory), ctx.gitlab_host)
+        click.echo(f"Running: Cloning repositories...")
         results = cloner.clone_all_repos(students, ctx.assignment)
-        MessageHandler.print_clone_summary(results, cloner)
+        
+        # Simple summary
+        success_count = sum(1 for r in results if r.success)
+        click.echo(f"Cloned {success_count}/{len(results)} repositories.")
         return results
+
+    @staticmethod
+    def run_grading(ctx: GradingContext, results: List[CloneResult]):
+        """Run grading for successfully cloned repos."""
+        pipeline = GradingPipeline(ctx)
+        
+        for result in results:
+            if result.success and result.repo_path:
+                try:
+                    pipeline.process_student(result.student, result.repo_path)
+                except Exception as e:
+                    click.echo(f"  ✗ Error grading {result.student.username}: {e}")
 
 
 @click.command()
@@ -109,22 +141,20 @@ class GradingManager:
 @click.option('--passing-grade', '-p', type=int, help='Passing grade')
 def main(assignment: str, solution: str, config: str, max_grade: int, passing_grade: int):
     """GradeIt CLI Entry Point."""
-    MessageHandler.print_welcome()
+    click.echo("🎓 GradeIt - AI-Powered Assignment Grading System")
+    click.echo("=" * 50)
     
     try:
         cfg = ConfigLoader(config)
-        click.echo(f"✓ Loaded configuration from: {config}")
-        
         ctx = GradingContext(
             assignment, solution, cfg,
             max_grade if max_grade is not None else cfg.get_int('max_grade', 100),
             passing_grade if passing_grade is not None else cfg.get_int('passing_grade', 60)
         )
         
-        MessageHandler.print_config(ctx)
-        
         students = GradingManager.load_students(ctx)
-        GradingManager.clone_repos(ctx, students)
+        clone_results = GradingManager.clone_repos(ctx, students)
+        GradingManager.run_grading(ctx, clone_results)
         
     except Exception as e:
         click.echo(f"\n✗ Error: {e}", err=True)
