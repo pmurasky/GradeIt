@@ -50,7 +50,7 @@ Contains Python-specific conventions, styles, and best practices:
 - No speculative development
 
 #### Code Quality
-- **15 lines max per function/method** (excluding blanks/docstrings)
+- **25 lines max per function/method** (excluding blanks/docstrings)
 - **0-2 private methods per class/module** (SRP guideline)
 - Comprehensive testing (80%+ coverage)
 

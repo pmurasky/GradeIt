@@ -34,8 +34,8 @@ This document outlines language-agnostic coding practices, testing expectations,
 - Follow SOLID principles
 - Prefer composition over inheritance
 - **Keep functions/methods small and focused (single responsibility)**
-- **Maximum function length: 15 lines of code** (excluding blank lines and docstrings)
-  - If a function exceeds 15 lines, extract helper functions
+- **Maximum function length: 25 lines of code** (excluding blank lines and docstrings)
+  - If a function exceeds 25 lines, extract helper functions
   - This enforces single responsibility and improves testability
   - Exception: Test functions may be longer if needed for clarity
 - Avoid code duplication (DRY principle)
@@ -184,7 +184,7 @@ def test_should_filter_out_invalid_students(self):
 - [ ] No code duplication
 - [ ] Appropriate use of design patterns
 - [ ] SOLID principles applied
-- [ ] **All functions are 15 lines or fewer**
+- [ ] **All functions are 25 lines or fewer**
 - [ ] **Commit is focused on single logical change** (micro commit)
 
 ### Testing
