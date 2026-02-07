@@ -42,6 +42,10 @@ class GradingContext:
     @property
     def output_directory(self) -> Path:
         return Path(self.config.get('output_directory', 'reports'))
+
+    @property
+    def solutions_directory(self) -> Path:
+        return Path(self.config.get('solutions_directory', 'solutions'))
         
     @property
     def gitlab_host(self) -> str:
@@ -215,13 +219,20 @@ def clone(ctx, assignment):
 
 @cli.command()
 @click.option('--assignment', '-a', required=True, help='Assignment name')
-@click.option('--solution', '-s', required=True, type=click.Path(exists=True), help='Solution path')
+@click.option('--solution', '-s', required=True, help='Solution folder name (in solutions_directory)')
 @click.pass_context
 def grade(ctx, assignment, solution):
     """Grade cloned repositories."""
     g_ctx: GradingContext = ctx.obj
     g_ctx.assignment = assignment
-    g_ctx.solution = solution
+    
+    # Resolve solution path
+    sol_path = g_ctx.solutions_directory / solution
+    if not sol_path.exists():
+        click.echo(f"✗ Solution path not found: {sol_path}", err=True)
+        sys.exit(1)
+        
+    g_ctx.solution = str(sol_path)
     
     try:
         students = GradingManager.load_students(g_ctx)

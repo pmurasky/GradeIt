@@ -49,11 +49,18 @@ def test_grade_command(mock_config_cls, mock_manager, runner, tmp_path):
     """Test the grade subcommand."""
     # Setup
     mock_manager.load_students.return_value = []
-    sol_dir = tmp_path / "solution"
+    
+    # Setup config to return tmp_path as solutions_directory
+    mock_config_instance = mock_config_cls.return_value
+    mock_config_instance.get.side_effect = lambda k, d=None: str(tmp_path) if k == 'solutions_directory' else d
+
+    # Create the solution folder inside the "solutions_directory" (tmp_path)
+    sol_name = "MySolution"
+    sol_dir = tmp_path / sol_name
     sol_dir.mkdir()
     
-    # Execute
-    result = runner.invoke(cli, ['grade', '--assignment', 'test-assign', '--solution', str(sol_dir)])
+    # Execute with just the name
+    result = runner.invoke(cli, ['grade', '--assignment', 'test-assign', '--solution', sol_name])
     
     # Verify
     assert result.exit_code == 0
