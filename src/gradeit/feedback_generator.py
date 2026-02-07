@@ -88,10 +88,13 @@ class FeedbackGenerator:
         ]
         return "\n".join(sections)
 
-    def save_report(self, student: Student, assignment: str, report: str) -> Path:
-        """Save report to file."""
-        filename = f"{student.username}_{assignment}_report.md"
+    def append_to_file(self, assignment: str, report: str) -> Path:
+        """Append report to the assignment feedback file."""
+        filename = f"{assignment}_Feedback.md"
         file_path = self.output_dir / filename
         
-        file_path.write_text(report, encoding='utf-8')
+        mode = 'a' if file_path.exists() else 'w'
+        with open(file_path, mode, encoding='utf-8') as f:
+            f.write(report + "\n\n")
+            
         return file_path

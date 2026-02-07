@@ -85,19 +85,41 @@ class TestGradingManagerLogic:
         
         assert mock_cloner.clone_student_repo.call_count == 2
 
+    @patch('src.gradeit.cli.FeedbackGenerator')
     @patch('src.gradeit.cli.GradingPipeline')
     @patch('src.gradeit.cli.tqdm')
-    def test_run_grading_logic(self, mock_tqdm, mock_pipeline_cls, mock_ctx, sample_students):
+    def test_run_grading_logic(self, mock_tqdm, mock_pipeline_cls, mock_feedback_cls, mock_ctx, sample_students):
         """Test grading logic."""
         mock_ctx.assignment = "test-assign"
         # Use MagicMock for path operations (support / operator)
         mock_ctx.base_directory = MagicMock()
-        mock_ctx.base_directory.__truediv__.return_value.__truediv__.return_value.exists.return_value = True
+        mock_ctx.repositories_directory = MagicMock()
         
+        # Setup paths: first student exists, second does not
+        repo_path_1 = MagicMock()
+        repo_path_1.exists.return_value = True
+        repo_path_2 = MagicMock()
+        repo_path_2.exists.return_value = False
+        
+        # When accessing repositories_directory / username / assignment
+        mock_ctx.repositories_directory.__truediv__.return_value.__truediv__.side_effect = [repo_path_1, repo_path_2]
+
         mock_pipeline = mock_pipeline_cls.return_value
+        # Mock feedback generator attached to pipeline (created inside pipeline)
+        # Note: In reality pipeline creates its own FeedbackGenerator. 
+        # But we can verify pipeline calls if we mock the class used inside it.
+        # Actually pipeline.process_student calls feedback.append_to_file.
+        # But process_student is mocked here (mock_pipeline.process_student).
+        
+        # So we just need to verification that GradingManager logic calls pipeline correctly.
+        # The logic flow is: GradingManager -> pipeline.process_student OR pipeline.process_missing_submission
+        
         mock_pbar = MagicMock()
         mock_tqdm.return_value.__enter__.return_value = mock_pbar
         
+        # Execute
         GradingManager.run_grading(mock_ctx, sample_students)
         
-        assert mock_pipeline.process_student.call_count == 2
+        # Verify
+        assert mock_pipeline.process_student.call_count == 1 # Only one exists
+        assert mock_pipeline.process_missing_submission.call_count == 1 # One missing

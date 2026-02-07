@@ -69,13 +69,18 @@ class TestFeedbackGenerator:
         assert "## Test Results" in report
         assert "## AI Feedback" in report
 
-    def test_save_report(self, tmp_path, sample_data):
+    def test_append_to_file(self, tmp_path, sample_data):
         generator = FeedbackGenerator(str(tmp_path))
-        student = sample_data[0]
         report_content = "# Report Content"
         
-        path = generator.save_report(student, "assign1", report_content)
-        
+        # First write
+        path = generator.append_to_file("assign1", report_content)
         assert path.exists()
-        assert path.read_text() == report_content
-        assert path.name == f"{student.username}_assign1_report.md"
+        assert path.name == "assign1_Feedback.md"
+        assert report_content in path.read_text()
+        
+        # Second write (append)
+        generator.append_to_file("assign1", "Second Report")
+        content = path.read_text()
+        assert "Second Report" in content
+        assert content.count("# Report Content") == 1

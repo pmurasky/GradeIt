@@ -36,6 +36,10 @@ class GradingContext:
         return Path(self.config.get('base_directory', 'repos'))
     
     @property
+    def repositories_directory(self) -> Path:
+        return Path(self.config.get('repositories_directory', 'repos'))
+    
+    @property
     def output_directory(self) -> Path:
         return Path(self.config.get('output_directory', 'reports'))
         
@@ -101,8 +105,24 @@ class GradingPipeline:
         ai_result = self.ai.grade_assignment(code, reqs)
         
         report = self.feedback.generate_report(student, build_result, test_summary, ai_result)
-        path = self.feedback.save_report(student, self.ctx.assignment or "unknown", report)
-        click.echo(f"  ✓ Report saved: {path.name}")
+        path = self.feedback.append_to_file(self.ctx.assignment or "unknown", report)
+        click.echo(f"  ✓ Report appended to: {path.name}")
+
+
+    def process_missing_submission(self, student: Student):
+        """Generate a 0-grade report for missing submissions."""
+        build_result = BuildResult(False, "Repository not found. No build attempted.")
+        test_summary = ExecutionSummary(0, 0, [], 0)
+        ai_result = GradingResult(
+            score=0, 
+            feedback="**Homework not Completed**\n\nThe repository could not be found. Grade set to 0.", 
+            suggestions=["Ensure repository exists.", "Check naming conventions."],
+            confidence=1.0
+        )
+        
+        report = self.feedback.generate_report(student, build_result, test_summary, ai_result)
+        path = self.feedback.append_to_file(self.ctx.assignment or "unknown", report)
+        click.echo(f"  ✓ Zero-grade appended to: {path.name}")
 
 
 class GradingManager:
@@ -125,7 +145,7 @@ class GradingManager:
         if not ctx.assignment:
              raise ValueError("Assignment name required for cloning")
 
-        cloner = RepositoryCloner(str(ctx.base_directory), ctx.gitlab_host)
+        cloner = RepositoryCloner(str(ctx.repositories_directory), ctx.gitlab_host)
         click.echo(f"Running: Cloning repositories for {ctx.assignment}...")
         
         results = []
@@ -148,7 +168,7 @@ class GradingManager:
         with tqdm(total=len(students), desc="Grading", unit="student") as pbar:
             for student in students:
                 pbar.set_postfix_str(f"Student: {student.username}", refresh=True)
-                repo_path = ctx.base_directory / ctx.assignment / student.username
+                repo_path = ctx.repositories_directory / student.username / ctx.assignment
                 if repo_path.exists():
                      try:
                         MessageHandler.log(ctx, f"Processing {student.username}")
@@ -157,7 +177,8 @@ class GradingManager:
                         click.echo(f"  ✗ Error grading {student.username}: {e}")
                         MessageHandler.log(ctx, f"Error: {e}")
                 else:
-                     click.echo(f"  ⚠ Skipping {student.username}: Repo not found")
+                     click.echo(f"  ⚠ Missing repo for {student.username}: Generating 0 grade")
+                     pipeline.process_missing_submission(student)
                 pbar.update(1)
 
 
