@@ -27,6 +27,7 @@ class GradingContext:
     config: ConfigLoader
     max_grade: int
     passing_grade: int
+    verbose: bool = False
     
     @property
     def students_file(self) -> str | None:
@@ -62,6 +63,52 @@ class SourceCodeReader:
             except Exception:
                 pass # Skip unreadable files
         return code_files
+
+
+class MessageHandler:
+    """Handles CLI output messages."""
+    
+    @staticmethod
+    def log(ctx: GradingContext, message: str):
+        """Log debug message if verbose is enabled."""
+        if ctx.verbose:
+            click.echo(f"[DEBUG] {message}", err=True)
+
+    @staticmethod
+    def print_welcome():
+        """Print welcome message."""
+        click.echo("🎓 GradeIt - AI-Powered Assignment Grading System")
+        click.echo("=" * 50)
+
+    @staticmethod
+    def print_config(ctx: GradingContext):
+        """Print configuration summary."""
+        click.echo(f"\nAssignment: {ctx.assignment}")
+        click.echo(f"Solution: {ctx.solution}")
+        click.echo(f"Max Grade: {ctx.max_grade}")
+        click.echo(f"Passing Grade: {ctx.passing_grade}")
+        click.echo(f"Verbose Mode: {'On' if ctx.verbose else 'Off'}")
+        click.echo(f"Students File: {ctx.students_file}")
+        click.echo(f"Output Directory: {ctx.config.get('output_directory')}")
+        click.echo(f"GitLab Host: {ctx.gitlab_host}")
+        click.echo("\n" + "=" * 50)
+        click.echo("Starting grading process...\n")
+
+    @staticmethod
+    def print_clone_summary(results: List[CloneResult], cloner: RepositoryCloner):
+        """Print clone results summary."""
+        summary = cloner.get_clone_summary(results)
+        click.echo("\nClone Summary:")
+        click.echo(f"Total: {summary['total']}")
+        click.echo(f"Successful: {summary['successful']}")
+        click.echo(f"Failed: {summary['failed']}")
+        click.echo(f"Success Rate: {summary['success_rate']:.1f}%")
+        
+        if summary['failed'] > 0:
+            click.echo("\nFailed Clones:")
+            for result in results:
+                if not result.success:
+                    click.echo(f"✗ {result.student.username}: {result.error}")
 
 
 class GradingPipeline:
