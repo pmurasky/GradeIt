@@ -4,8 +4,7 @@ Unit tests for CLI module.
 
 import pytest
 from unittest.mock import MagicMock, patch, Mock
-from src.gradeit.cli import GradingManager, GradingContext, CloneResult
-from src.gradeit.student_loader import Student
+from src.gradeit.cli import GradingManager, GradingContext, CloneResult, MessageHandler
 
 
 @pytest.fixture
@@ -14,11 +13,13 @@ def mock_ctx():
     ctx.base_directory = "/tmp/repos"
     ctx.gitlab_host = "gitlab.example.com"
     ctx.assignment = "test-assign"
+    ctx.verbose = False
     return ctx
 
 
 @pytest.fixture
 def sample_students():
+    from src.gradeit.student_loader import Student
     return [
         Student("group1", "user1", "2024", "cis", "01"),
         Student("group2", "user2", "2024", "cis", "01")
@@ -78,3 +79,20 @@ class TestGradingManager:
         """Test grading with no successful clones."""
         GradingManager.run_grading(mock_ctx, [])
         mock_pipeline_cls.assert_not_called()
+
+
+class TestMessageHandler:
+    """Tests for MessageHandler."""
+    
+    @patch('src.gradeit.cli.click.echo')
+    def test_log_verbose_on(self, mock_echo, mock_ctx):
+        mock_ctx.verbose = True
+        MessageHandler.log(mock_ctx, "Debug message")
+        mock_echo.assert_called_once()
+        assert "[DEBUG]" in mock_echo.call_args[0][0]
+
+    @patch('src.gradeit.cli.click.echo')
+    def test_log_verbose_off(self, mock_echo, mock_ctx):
+        mock_ctx.verbose = False
+        MessageHandler.log(mock_ctx, "Debug message")
+        mock_echo.assert_not_called()
