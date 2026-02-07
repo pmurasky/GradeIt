@@ -131,14 +131,14 @@ class GradingManager:
     @staticmethod
     def run_grading(ctx: GradingContext, results: List[CloneResult]):
         """Run grading for successfully cloned repos."""
-        pipeline = GradingPipeline(ctx)
-        
         successful_clones = [r for r in results if r.success and r.repo_path]
         
         if not successful_clones:
             click.echo("No repositories to grade.")
             return
 
+        pipeline = GradingPipeline(ctx)
+        
         with tqdm(total=len(successful_clones), desc="Grading", unit="student") as pbar:
             for result in successful_clones:
                 pbar.set_postfix_str(f"Student: {result.student.username}", refresh=True)
