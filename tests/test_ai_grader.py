@@ -1,91 +1,100 @@
 """
-Unit tests for AI Grading components.
+Unit tests for AI grading module.
 """
 
 import pytest
-import json
-from unittest.mock import Mock, MagicMock
-from src.gradeit.ai_grader import (
-    AnthropicClient, PromptFactory, ResponseParser, GradingAssistant, GradingResult
-)
+from unittest.mock import MagicMock, Mock
+from src.gradeit.ai_grader import GradingAssistant, GradingResult
+from src.gradeit.ai_clients import AIClient
+
+@pytest.fixture
+def mock_client():
+    """Create a mock AI client."""
+    client = MagicMock(spec=AIClient)
+    return client
+
+@pytest.fixture
+def assistant(mock_client):
+    """Create a GradingAssistant instance."""
+    return GradingAssistant(mock_client)
+
+def test_grade_assignment_success(assistant, mock_client):
+    """Test successful grading."""
+    # Setup mock response
+    mock_response = """
+    {
+        "score": 85,
+        "feedback": "Good job.",
+        "suggestions": ["Add comments"],
+        "confidence": 0.95
+    }
+    """
+    mock_client.analyze_code.return_value = mock_response
+
+    # Execute
+    code_files = {"main.py": "print('hello')"}
+    result = assistant.grade_assignment(code_files, "Reqs")
+
+    # Verify
+    assert isinstance(result, GradingResult)
+    assert result.score == 85
+    assert result.feedback == "Good job."
+    assert result.confidence == 0.95
+    
+    # Verify client call
+    mock_client.analyze_code.assert_called_once()
+    call_arg = mock_client.analyze_code.call_args[0][0]
+    assert "Requirements" in call_arg
+    assert "Student Code" in call_arg
+
+def test_grade_assignment_scaling(assistant, mock_client):
+    """Test score scaling with max_grade."""
+    mock_response = """
+    {
+        "score": 80, 
+        "feedback": "Nice",
+        "confidence": 1.0
+    }
+    """
+    mock_client.analyze_code.return_value = mock_response
+
+    # Grade is 80/100. If max_grade is 50, score should be 40.
+    result = assistant.grade_assignment({}, "Reqs", max_grade=50)
+
+    assert result.score == 40
+
+def test_grade_assignment_with_solution(assistant, mock_client):
+    """Test grading with solution code provided."""
+    mock_client.analyze_code.return_value = '{"score": 90, "feedback": "Good", "confidence": 1.0}'
+    
+    code = {"Main.java": "Student Code"}
+    solution = {"Main.java": "Solution Code"}
+    
+    assistant.grade_assignment(code, "Reqs", solution_files=solution)
+    
+    call_arg = mock_client.analyze_code.call_args[0][0]
+    assert "Reference Solution" in call_arg
+    assert "Solution Code" in call_arg
+    assert "Student Code" in call_arg
+
+def test_grade_assignment_with_context(assistant, mock_client):
+    """Test grading with extracted context (headers)."""
+    mock_client.analyze_code.return_value = '{"score": 90, "feedback": "Good", "confidence": 1.0}'
+    
+    code = {"Main.java": "/* Header */ class Main {}"}
+    context = {"Main.java": "/* Header */"}
+    
+    assistant.grade_assignment(code, "Reqs", file_context=context)
+    
+    call_arg = mock_client.analyze_code.call_args[0][0]
+    assert "File-Specific Instructions (from headers)" in call_arg
+    assert "/* Header */" in call_arg
+    assert "Student Code" in call_arg
 
 
-class TestPromptFactory:
-    """Tests for PromptFactory."""
+def test_grade_assignment_json_error(assistant, mock_client):
+    """Test handling of invalid JSON response."""
+    mock_client.analyze_code.return_value = "Invalid JSON"
 
-    def test_create_system_prompt(self):
-        prompt = PromptFactory.create_system_prompt()
-        assert "expert Computer Science T.A." in prompt
-        assert "JSON format" in prompt
-
-    def test_create_grading_prompt(self):
-        code = {"main.py": "print('hello')"}
-        reqs = "Print hello"
-        prompt = PromptFactory.create_grading_prompt(code, reqs)
-        
-        assert "Requirements:\nPrint hello" in prompt
-        assert "--- main.py ---" in prompt
-        assert "print('hello')" in prompt
-
-
-class TestResponseParser:
-    """Tests for ResponseParser."""
-
-    def test_parse_valid_json(self):
-        json_str = '{"score": 90, "feedback": "Good job", "suggestions": [], "confidence": 0.95}'
-        data = ResponseParser.parse_json_response(json_str)
-        assert data["score"] == 90
-
-    def test_parse_markdown_json(self):
-        json_str = '```json\n{"score": 85}\n```'
-        data = ResponseParser.parse_json_response(json_str)
-        assert data["score"] == 85
-
-    def test_parse_invalid_json(self):
-        with pytest.raises(ValueError):
-            ResponseParser.parse_json_response("Not JSON")
-
-    def test_create_grading_result(self):
-        data = {"score": 100, "feedback": "Perfect", "suggestions": ["None"], "confidence": 1.0}
-        result = ResponseParser.create_grading_result(data)
-        assert isinstance(result, GradingResult)
-        assert result.score == 100
-        assert result.confidence == 1.0
-
-
-class TestGradingAssistant:
-    """Tests for GradingAssistant."""
-
-    @pytest.fixture
-    def mock_client(self):
-        return Mock(spec=AnthropicClient)
-
-    def test_grade_assignment_success(self, mock_client):
-        # Setup
-        assistant = GradingAssistant(mock_client)
-        code = {"test.py": "pass"}
-        reqs = "Do nothing"
-        
-        # Mock response
-        mock_response = json.dumps({
-            "score": 80,
-            "feedback": "Works",
-            "suggestions": ["Add comments"],
-            "confidence": 0.8
-        })
-        mock_client.analyze_code.return_value = mock_response
-        
-        # Execute
-        result = assistant.grade_assignment(code, reqs)
-        
-        # Verify
-        assert result.score == 80
-        assert result.feedback == "Works"
-        mock_client.analyze_code.assert_called_once()
-        
-    def test_grade_assignment_api_error(self, mock_client):
-        assistant = GradingAssistant(mock_client)
-        mock_client.analyze_code.side_effect = RuntimeError("API Down")
-        
-        with pytest.raises(RuntimeError):
-            assistant.grade_assignment({}, "")
+    with pytest.raises(ValueError, match="Failed to parse AI response"):
+        assistant.grade_assignment({}, "Reqs")

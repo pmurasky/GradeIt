@@ -130,3 +130,36 @@ class TestGradingManagerLogic:
         # Verify
         assert mock_pipeline.process_student.call_count == 1 # Only one exists
         assert mock_pipeline.process_missing_submission.call_count == 1 # One missing
+
+    @patch('src.gradeit.cli.FeedbackGenerator')
+    @patch('src.gradeit.cli.GradingPipeline')
+    @patch('src.gradeit.cli.tqdm')
+    def test_run_grading_sorting(self, mock_tqdm, mock_pipeline_cls, mock_feedback_cls, mock_ctx):
+        """Test that students are processed in alphabetical order."""
+        from src.gradeit.student_loader import Student
+        
+        # Unsorted input
+        students = [
+            Student("g2", "zebra", "2024", "cis", "01"),
+            Student("g1", "alpha", "2024", "cis", "01"),
+            Student("g3", "beta", "2024", "cis", "01")
+        ]
+        
+        mock_ctx.repositories_directory = MagicMock()
+        # Mock existence check to always return True so process_student is called
+        mock_ctx.repositories_directory.__truediv__.return_value.__truediv__.return_value.exists.return_value = True
+        
+        pipeline_mock = mock_pipeline_cls.return_value
+        
+        # Execute
+        GradingManager.run_grading(mock_ctx, students)
+        
+        # Verify call order
+        # process_student is called for each student. Check args.
+        assert pipeline_mock.process_student.call_count == 3
+        
+        calls = pipeline_mock.process_student.call_args_list
+        # Check usernames of processed students
+        processed_users = [call.args[0].username for call in calls]
+        
+        assert processed_users == ["alpha", "beta", "zebra"]

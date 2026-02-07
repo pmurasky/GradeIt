@@ -13,7 +13,8 @@ from .student_loader import StudentLoader, Student
 from .repo_cloner import RepositoryCloner, CloneResult
 from .gradle_runner import GradleRunner, BuildResult
 from .test_parser import TestResultParser, ExecutionSummary
-from .ai_grader import GradingAssistant, AnthropicClient
+from .ai_grader import GradingAssistant
+from .ai_clients import AIClientFactory
 from .feedback_generator import FeedbackGenerator, GradingResult
 
 
@@ -84,6 +85,29 @@ class SourceCodeReader:
                 code_files[file_path.name] = content
             except Exception:
                 pass 
+    @staticmethod
+    def extract_header_comments(content: str) -> str:
+        """Extract header comments (Javadoc/Block) from the beginning of the file."""
+        content = content.strip()
+        if content.startswith("/**") or content.startswith("/*"):
+            end_index = content.find("*/")
+            if end_index != -1:
+                return content[:end_index+2]
+        return ""
+
+    @staticmethod
+    def read_files(path: Path, extension: str = ".java") -> Dict[str, str]:
+        """Read all files with extension in path."""
+        code_files = {}
+        if not path.exists():
+            return code_files
+            
+        for file_path in path.rglob(f"*{extension}"):
+            try:
+                content = file_path.read_text(errors='replace')
+                code_files[file_path.name] = content
+            except Exception:
+                pass 
         return code_files
 
 
@@ -94,7 +118,11 @@ class GradingPipeline:
         self.ctx = ctx
         self.gradle = GradleRunner()
         self.parser = TestResultParser()
-        self.ai = GradingAssistant(AnthropicClient())
+        
+        # Initialize AI client using factory
+        client = AIClientFactory.create_client(ctx.config)
+        self.ai = GradingAssistant(client)
+        
         self.feedback = FeedbackGenerator(str(ctx.output_directory))
         
     def process_student(self, student: Student, repo_path: Path):
@@ -105,8 +133,23 @@ class GradingPipeline:
         test_summary = self.parser.parse_results(repo_path)
         
         code = SourceCodeReader.read_files(repo_path / "src/main")
+        
+        # Extract context from student code
+        context = {}
+        for filename, content in code.items():
+            header = SourceCodeReader.extract_header_comments(content)
+            if header:
+                context[filename] = header
+
+        # Read solution code if available
+        solution_code = {}
+        if self.ctx.solution:
+            solution_path = Path(self.ctx.solution)
+            if solution_path.exists():
+                solution_code = SourceCodeReader.read_files(solution_path)
+
         reqs = "Review code for best practices and correctness."
-        ai_result = self.ai.grade_assignment(code, reqs)
+        ai_result = self.ai.grade_assignment(code, reqs, self.ctx.max_grade, solution_code, context)
         
         report = self.feedback.generate_report(student, build_result, test_summary, ai_result)
         path = self.feedback.append_to_file(self.ctx.assignment or "unknown", report)
@@ -167,6 +210,10 @@ class GradingManager:
     def run_grading(ctx: GradingContext, students: List[Student]):
         """Run grading for cloned repos."""
         pipeline = GradingPipeline(ctx)
+        
+        # Sort students by username for consistent feedback order
+        students.sort(key=lambda s: s.username.lower())
+        
         MessageHandler.log(ctx, f"Starting grading for {len(students)} students")
         
         with tqdm(total=len(students), desc="Grading", unit="student") as pbar:
@@ -220,8 +267,9 @@ def clone(ctx, assignment):
 @cli.command()
 @click.option('--assignment', '-a', required=True, help='Assignment name')
 @click.option('--solution', '-s', required=True, help='Solution folder name (in solutions_directory)')
+@click.option('--max-grade', '-m', default=100, help='Maximum grade for the assignment (default: 100)')
 @click.pass_context
-def grade(ctx, assignment, solution):
+def grade(ctx, assignment, solution, max_grade):
     """Grade cloned repositories."""
     g_ctx: GradingContext = ctx.obj
     g_ctx.assignment = assignment
@@ -233,6 +281,7 @@ def grade(ctx, assignment, solution):
         sys.exit(1)
         
     g_ctx.solution = str(sol_path)
+    g_ctx.max_grade = max_grade
     
     try:
         students = GradingManager.load_students(g_ctx)

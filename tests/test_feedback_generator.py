@@ -73,14 +73,30 @@ class TestFeedbackGenerator:
         generator = FeedbackGenerator(str(tmp_path))
         report_content = "# Report Content"
         
-        # First write
+        # First write (should resolve to base name)
         path = generator.append_to_file("assign1", report_content)
         assert path.exists()
         assert path.name == "assign1_Feedback.md"
         assert report_content in path.read_text()
         
-        # Second write (append)
+        # Second write (append to SAME file because it's cached in generator instance)
         generator.append_to_file("assign1", "Second Report")
         content = path.read_text()
         assert "Second Report" in content
         assert content.count("# Report Content") == 1
+
+    def test_versioning_new_file(self, tmp_path):
+        """Test that a new generator instance respects existing files."""
+        # Create a pre-existing file
+        (tmp_path / "assign2_Feedback.md").write_text("Old Run")
+        
+        # New run/generator instance
+        generator = FeedbackGenerator(str(tmp_path))
+        path = generator.append_to_file("assign2", "New Run")
+        
+        # Should create version 1
+        assert path.name == "assign2_Feedback_1.md"
+        assert path.read_text().strip() == "New Run"
+        
+        # Original should be untouched
+        assert (tmp_path / "assign2_Feedback.md").read_text() == "Old Run"

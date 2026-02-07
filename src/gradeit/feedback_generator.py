@@ -71,6 +71,7 @@ class FeedbackGenerator:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.renderer = MarkdownRenderer()
+        self._resolved_paths = {}
 
     def generate_report(
         self, 
@@ -88,10 +89,27 @@ class FeedbackGenerator:
         ]
         return "\n".join(sections)
 
+    def _get_unique_path(self, assignment: str) -> Path:
+        """Resolve a unique file path, handling version collision."""
+        if assignment in self._resolved_paths:
+            return self._resolved_paths[assignment]
+            
+        base_name = f"{assignment}_Feedback"
+        filename = f"{base_name}.md"
+        file_path = self.output_dir / filename
+        
+        counter = 1
+        while file_path.exists():
+            filename = f"{base_name}_{counter}.md"
+            file_path = self.output_dir / filename
+            counter += 1
+            
+        self._resolved_paths[assignment] = file_path
+        return file_path
+
     def append_to_file(self, assignment: str, report: str) -> Path:
         """Append report to the assignment feedback file."""
-        filename = f"{assignment}_Feedback.md"
-        file_path = self.output_dir / filename
+        file_path = self._get_unique_path(assignment)
         
         mode = 'a' if file_path.exists() else 'w'
         with open(file_path, mode, encoding='utf-8') as f:
