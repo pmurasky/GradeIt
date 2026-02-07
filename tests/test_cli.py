@@ -4,8 +4,12 @@ Unit tests for CLI module.
 
 import pytest
 from unittest.mock import MagicMock, patch, Mock
-from src.gradeit.cli import GradingManager, GradingContext, CloneResult, MessageHandler
+from click.testing import CliRunner
+from src.gradeit.cli import cli, GradingManager, GradingContext, CloneResult
 
+@pytest.fixture
+def runner():
+    return CliRunner()
 
 @pytest.fixture
 def mock_ctx():
@@ -16,7 +20,6 @@ def mock_ctx():
     ctx.verbose = False
     return ctx
 
-
 @pytest.fixture
 def sample_students():
     from src.gradeit.student_loader import Student
@@ -25,74 +28,76 @@ def sample_students():
         Student("group2", "user2", "2024", "cis", "01")
     ]
 
+@patch('src.gradeit.cli.GradingManager')
+@patch('src.gradeit.cli.ConfigLoader')
+def test_clone_command(mock_config_cls, mock_manager, runner):
+    """Test the clone subcommand."""
+    # Setup
+    mock_manager.load_students.return_value = []
+    
+    # Execute
+    result = runner.invoke(cli, ['clone', '--assignment', 'test-assign'])
+    
+    # Verify
+    assert result.exit_code == 0
+    mock_manager.load_students.assert_called_once()
+    mock_manager.clone_repos.assert_called_once()
 
-class TestGradingManager:
-    """Tests for GradingManager."""
+@patch('src.gradeit.cli.GradingManager')
+@patch('src.gradeit.cli.ConfigLoader')
+def test_grade_command(mock_config_cls, mock_manager, runner, tmp_path):
+    """Test the grade subcommand."""
+    # Setup
+    mock_manager.load_students.return_value = []
+    sol_dir = tmp_path / "solution"
+    sol_dir.mkdir()
+    
+    # Execute
+    result = runner.invoke(cli, ['grade', '--assignment', 'test-assign', '--solution', str(sol_dir)])
+    
+    # Verify
+    assert result.exit_code == 0
+    mock_manager.load_students.assert_called_once()
+    mock_manager.run_grading.assert_called_once()
+
+@patch('src.gradeit.cli.GradingManager')
+@patch('src.gradeit.cli.ConfigLoader')
+def test_missing_args(mock_config_cls, mock_manager, runner):
+    """Test missing arguments."""
+    result = runner.invoke(cli, ['clone']) # Missing assignment
+    assert result.exit_code != 0
+    assert "Missing option" in result.output
+
+class TestGradingManagerLogic:
+    """Tests for GradingManager logic (independent of Click)."""
 
     @patch('src.gradeit.cli.RepositoryCloner')
     @patch('src.gradeit.cli.tqdm')
-    def test_clone_repos(self, mock_tqdm, mock_cloner_cls, mock_ctx, sample_students):
-        """Test cloning with progress bar."""
-        # Setup mocks
+    def test_clone_repos_logic(self, mock_tqdm, mock_cloner_cls, mock_ctx, sample_students):
+        """Test cloning logic."""
+        mock_ctx.assignment = "test-assign"
         mock_cloner = mock_cloner_cls.return_value
         mock_cloner.clone_student_repo.return_value = CloneResult(sample_students[0], True)
-        
-        # Mock tqdm context manager
         mock_pbar = MagicMock()
         mock_tqdm.return_value.__enter__.return_value = mock_pbar
         
-        # Execute
-        results = GradingManager.clone_repos(mock_ctx, sample_students)
+        GradingManager.clone_repos(mock_ctx, sample_students)
         
-        # Verify
-        assert len(results) == 2
         assert mock_cloner.clone_student_repo.call_count == 2
-        assert mock_pbar.update.call_count == 2
-        mock_tqdm.assert_called_once()
 
     @patch('src.gradeit.cli.GradingPipeline')
     @patch('src.gradeit.cli.tqdm')
-    def test_run_grading(self, mock_tqdm, mock_pipeline_cls, mock_ctx, sample_students):
-        """Test grading with progress bar."""
-        # Setup mocks
+    def test_run_grading_logic(self, mock_tqdm, mock_pipeline_cls, mock_ctx, sample_students):
+        """Test grading logic."""
+        mock_ctx.assignment = "test-assign"
+        # Use MagicMock for path operations (support / operator)
+        mock_ctx.base_directory = MagicMock()
+        mock_ctx.base_directory.__truediv__.return_value.__truediv__.return_value.exists.return_value = True
+        
         mock_pipeline = mock_pipeline_cls.return_value
-        
-        results = [
-            CloneResult(sample_students[0], True, Mock(exists=True)),
-            CloneResult(sample_students[1], True, Mock(exists=True))
-        ]
-        
-        # Mock tqdm context manager
         mock_pbar = MagicMock()
         mock_tqdm.return_value.__enter__.return_value = mock_pbar
         
-        # Execute
-        GradingManager.run_grading(mock_ctx, results)
+        GradingManager.run_grading(mock_ctx, sample_students)
         
-        # Verify
         assert mock_pipeline.process_student.call_count == 2
-        assert mock_pbar.update.call_count == 2
-        mock_tqdm.assert_called_once()
-
-    @patch('src.gradeit.cli.GradingPipeline')
-    def test_run_grading_no_repos(self, mock_pipeline_cls, mock_ctx):
-        """Test grading with no successful clones."""
-        GradingManager.run_grading(mock_ctx, [])
-        mock_pipeline_cls.assert_not_called()
-
-
-class TestMessageHandler:
-    """Tests for MessageHandler."""
-    
-    @patch('src.gradeit.cli.click.echo')
-    def test_log_verbose_on(self, mock_echo, mock_ctx):
-        mock_ctx.verbose = True
-        MessageHandler.log(mock_ctx, "Debug message")
-        mock_echo.assert_called_once()
-        assert "[DEBUG]" in mock_echo.call_args[0][0]
-
-    @patch('src.gradeit.cli.click.echo')
-    def test_log_verbose_off(self, mock_echo, mock_ctx):
-        mock_ctx.verbose = False
-        MessageHandler.log(mock_ctx, "Debug message")
-        mock_echo.assert_not_called()

@@ -1,15 +1,13 @@
+"""
+Command-line interface for GradeIt.
+"""
+
 import click
 import sys
-import os
 from pathlib import Path
-from typing import List, Dict
-from dataclasses import dataclass
+from typing import List, Dict, Optional
+from dataclasses import dataclass, field
 from tqdm import tqdm
-import sys
-import os
-from pathlib import Path
-from typing import List, Dict
-from dataclasses import dataclass
 from .config_loader import ConfigLoader
 from .student_loader import StudentLoader, Student
 from .repo_cloner import RepositoryCloner, CloneResult
@@ -22,12 +20,12 @@ from .feedback_generator import FeedbackGenerator, GradingResult
 @dataclass
 class GradingContext:
     """Holds the context for the grading operation."""
-    assignment: str
-    solution: str
     config: ConfigLoader
-    max_grade: int
-    passing_grade: int
     verbose: bool = False
+    assignment: Optional[str] = None
+    solution: Optional[str] = None
+    max_grade: int = 100
+    passing_grade: int = 60
     
     @property
     def students_file(self) -> str | None:
@@ -46,25 +44,6 @@ class GradingContext:
         return self.config.get('gitlab_host', 'gitlab.hfcc.edu')
 
 
-class SourceCodeReader:
-    """Reads source code for AI analysis."""
-    
-    @staticmethod
-    def read_files(path: Path, extension: str = ".java") -> Dict[str, str]:
-        """Read all files with extension in path."""
-        code_files = {}
-        if not path.exists():
-            return code_files
-            
-        for file_path in path.rglob(f"*{extension}"):
-            try:
-                content = file_path.read_text(errors='replace')
-                code_files[file_path.name] = content
-            except Exception:
-                pass # Skip unreadable files
-        return code_files
-
-
 class MessageHandler:
     """Handles CLI output messages."""
     
@@ -80,35 +59,24 @@ class MessageHandler:
         click.echo("🎓 GradeIt - AI-Powered Assignment Grading System")
         click.echo("=" * 50)
 
-    @staticmethod
-    def print_config(ctx: GradingContext):
-        """Print configuration summary."""
-        click.echo(f"\nAssignment: {ctx.assignment}")
-        click.echo(f"Solution: {ctx.solution}")
-        click.echo(f"Max Grade: {ctx.max_grade}")
-        click.echo(f"Passing Grade: {ctx.passing_grade}")
-        click.echo(f"Verbose Mode: {'On' if ctx.verbose else 'Off'}")
-        click.echo(f"Students File: {ctx.students_file}")
-        click.echo(f"Output Directory: {ctx.config.get('output_directory')}")
-        click.echo(f"GitLab Host: {ctx.gitlab_host}")
-        click.echo("\n" + "=" * 50)
-        click.echo("Starting grading process...\n")
 
+class SourceCodeReader:
+    """Reads source code for AI analysis."""
+    
     @staticmethod
-    def print_clone_summary(results: List[CloneResult], cloner: RepositoryCloner):
-        """Print clone results summary."""
-        summary = cloner.get_clone_summary(results)
-        click.echo("\nClone Summary:")
-        click.echo(f"Total: {summary['total']}")
-        click.echo(f"Successful: {summary['successful']}")
-        click.echo(f"Failed: {summary['failed']}")
-        click.echo(f"Success Rate: {summary['success_rate']:.1f}%")
-        
-        if summary['failed'] > 0:
-            click.echo("\nFailed Clones:")
-            for result in results:
-                if not result.success:
-                    click.echo(f"✗ {result.student.username}: {result.error}")
+    def read_files(path: Path, extension: str = ".java") -> Dict[str, str]:
+        """Read all files with extension in path."""
+        code_files = {}
+        if not path.exists():
+            return code_files
+            
+        for file_path in path.rglob(f"*{extension}"):
+            try:
+                content = file_path.read_text(errors='replace')
+                code_files[file_path.name] = content
+            except Exception:
+                pass 
+        return code_files
 
 
 class GradingPipeline:
@@ -125,21 +93,15 @@ class GradingPipeline:
         """Run full grading pipeline for a student."""
         click.echo(f"Processing {student.username}...")
         
-        # 1. Build
         build_result = self.gradle.run_build(repo_path)
-        
-        # 2. Test Results
         test_summary = self.parser.parse_results(repo_path)
         
-        # 3. AI Grading
         code = SourceCodeReader.read_files(repo_path / "src/main")
-        # Read requirements from solution dir if available, else generic
         reqs = "Review code for best practices and correctness."
         ai_result = self.ai.grade_assignment(code, reqs)
         
-        # 4. Feedback
         report = self.feedback.generate_report(student, build_result, test_summary, ai_result)
-        path = self.feedback.save_report(student, self.ctx.assignment, report)
+        path = self.feedback.save_report(student, self.ctx.assignment or "unknown", report)
         click.echo(f"  ✓ Report saved: {path.name}")
 
 
@@ -160,8 +122,11 @@ class GradingManager:
     @staticmethod
     def clone_repos(ctx: GradingContext, students: List[Student]) -> List[CloneResult]:
         """Clone student repositories."""
+        if not ctx.assignment:
+             raise ValueError("Assignment name required for cloning")
+
         cloner = RepositoryCloner(str(ctx.base_directory), ctx.gitlab_host)
-        click.echo(f"Running: Cloning repositories...")
+        click.echo(f"Running: Cloning repositories for {ctx.assignment}...")
         
         results = []
         with tqdm(total=len(students), desc="Cloning", unit="repo") as pbar:
@@ -170,67 +135,80 @@ class GradingManager:
                 results.append(result)
                 pbar.update(1)
         
-        # Simple summary
         success_count = sum(1 for r in results if r.success)
         click.echo(f"Cloned {success_count}/{len(results)} repositories.")
         return results
 
     @staticmethod
-    def run_grading(ctx: GradingContext, results: List[CloneResult]):
-        """Run grading for successfully cloned repos."""
-        successful_clones = [r for r in results if r.success and r.repo_path]
-        
-        if not successful_clones:
-            click.echo("No repositories to grade.")
-            return
-
+    def run_grading(ctx: GradingContext, students: List[Student]):
+        """Run grading for cloned repos."""
         pipeline = GradingPipeline(ctx)
-        MessageHandler.log(ctx, f"Grading {len(successful_clones)} repositories")
+        MessageHandler.log(ctx, f"Starting grading for {len(students)} students")
         
-        with tqdm(total=len(successful_clones), desc="Grading", unit="student") as pbar:
-            for result in successful_clones:
-                pbar.set_postfix_str(f"Student: {result.student.username}", refresh=True)
-                try:
-                    MessageHandler.log(ctx, f"Processing {result.student.username} at {result.repo_path}")
-                    pipeline.process_student(result.student, result.repo_path)
-                except Exception as e:
-                    click.echo(f"  ✗ Error grading {result.student.username}: {e}")
-                    MessageHandler.log(ctx, f"Error details: {e}")
+        with tqdm(total=len(students), desc="Grading", unit="student") as pbar:
+            for student in students:
+                pbar.set_postfix_str(f"Student: {student.username}", refresh=True)
+                repo_path = ctx.base_directory / ctx.assignment / student.username
+                if repo_path.exists():
+                     try:
+                        MessageHandler.log(ctx, f"Processing {student.username}")
+                        pipeline.process_student(student, repo_path)
+                     except Exception as e:
+                        click.echo(f"  ✗ Error grading {student.username}: {e}")
+                        MessageHandler.log(ctx, f"Error: {e}")
+                else:
+                     click.echo(f"  ⚠ Skipping {student.username}: Repo not found")
                 pbar.update(1)
 
 
-@click.command()
-@click.option('--assignment', '-a', required=True, help='Assignment name')
-@click.option('--solution', '-s', required=True, type=click.Path(exists=True), help='Solution path')
+@click.group()
 @click.option('--config', '-c', default='config.properties', type=click.Path(), help='Config file')
-@click.option('--max-grade', '-m', type=int, help='Max grade')
-@click.option('--passing-grade', '-p', type=int, help='Passing grade')
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
-def main(assignment: str, solution: str, config: str, max_grade: int, passing_grade: int, verbose: bool):
-    """GradeIt CLI Entry Point."""
+@click.pass_context
+def cli(ctx, config, verbose):
+    """GradeIt - AI-Powered Assignment Grading System"""
     MessageHandler.print_welcome()
-    
     try:
         cfg = ConfigLoader(config)
-        ctx = GradingContext(
-            assignment, solution, cfg,
-            max_grade if max_grade is not None else cfg.get_int('max_grade', 100),
-            passing_grade if passing_grade is not None else cfg.get_int('passing_grade', 60),
-            verbose
-        )
-        
-        MessageHandler.print_config(ctx)
-        
-        students = GradingManager.load_students(ctx)
-        clone_results = GradingManager.clone_repos(ctx, students)
-        GradingManager.run_grading(ctx, clone_results)
-        
+        ctx.obj = GradingContext(config=cfg, verbose=verbose)
     except Exception as e:
-        click.echo(f"\n✗ Error: {e}", err=True)
-        if verbose:
-            import traceback
-            traceback.print_exc()
+        click.echo(f"✗ Configuration Error: {e}", err=True)
         sys.exit(1)
 
+
+@cli.command()
+@click.option('--assignment', '-a', required=True, help='Assignment name')
+@click.pass_context
+def clone(ctx, assignment):
+    """Clone student repositories."""
+    g_ctx: GradingContext = ctx.obj
+    g_ctx.assignment = assignment
+    
+    try:
+        students = GradingManager.load_students(g_ctx)
+        GradingManager.clone_repos(g_ctx, students)
+    except Exception as e:
+        click.echo(f"\n✗ Error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.option('--assignment', '-a', required=True, help='Assignment name')
+@click.option('--solution', '-s', required=True, type=click.Path(exists=True), help='Solution path')
+@click.pass_context
+def grade(ctx, assignment, solution):
+    """Grade cloned repositories."""
+    g_ctx: GradingContext = ctx.obj
+    g_ctx.assignment = assignment
+    g_ctx.solution = solution
+    
+    try:
+        students = GradingManager.load_students(g_ctx)
+        GradingManager.run_grading(g_ctx, students)
+    except Exception as e:
+        click.echo(f"\n✗ Error: {e}", err=True)
+        sys.exit(1)
+
+
 if __name__ == '__main__':
-    main()
+    cli()
