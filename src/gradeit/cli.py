@@ -133,12 +133,20 @@ class GradingManager:
         """Run grading for successfully cloned repos."""
         pipeline = GradingPipeline(ctx)
         
-        for result in results:
-            if result.success and result.repo_path:
+        successful_clones = [r for r in results if r.success and r.repo_path]
+        
+        if not successful_clones:
+            click.echo("No repositories to grade.")
+            return
+
+        with tqdm(total=len(successful_clones), desc="Grading", unit="student") as pbar:
+            for result in successful_clones:
+                pbar.set_postfix_str(f"Student: {result.student.username}", refresh=True)
                 try:
                     pipeline.process_student(result.student, result.repo_path)
                 except Exception as e:
                     click.echo(f"  ✗ Error grading {result.student.username}: {e}")
+                pbar.update(1)
 
 
 @click.command()
