@@ -1,8 +1,10 @@
-"""
-Command-line interface for GradeIt.
-"""
-
 import click
+import sys
+import os
+from pathlib import Path
+from typing import List, Dict
+from dataclasses import dataclass
+from tqdm import tqdm
 import sys
 import os
 from pathlib import Path
@@ -113,7 +115,13 @@ class GradingManager:
         """Clone student repositories."""
         cloner = RepositoryCloner(str(ctx.base_directory), ctx.gitlab_host)
         click.echo(f"Running: Cloning repositories...")
-        results = cloner.clone_all_repos(students, ctx.assignment)
+        
+        results = []
+        with tqdm(total=len(students), desc="Cloning", unit="repo") as pbar:
+            for student in students:
+                result = cloner.clone_student_repo(student, ctx.assignment)
+                results.append(result)
+                pbar.update(1)
         
         # Simple summary
         success_count = sum(1 for r in results if r.success)
