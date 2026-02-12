@@ -69,6 +69,7 @@ class TestRepositoryCloner:
         
         assert result.success is True
         assert result.repo_path == tmp_path / "mawall" / "fizzbuzz"
+        assert result.already_existed is False
         mock_clone.assert_called_once()
     
     @patch('src.gradeit.repo_cloner.GitRunner.clone')
@@ -79,14 +80,30 @@ class TestRepositoryCloner:
         result = cloner.clone_student_repo(student, "fizzbuzz")
         
         assert result.success is False
+        assert result.already_existed is False
         assert "Error" in result.error
         
+    @patch('src.gradeit.repo_cloner.GitRunner.clone')
+    def test_clone_student_repo_already_exists(self, mock_clone, cloner, student, tmp_path):
+        """Test repo that already exists is skipped."""
+        # Create the repo directory to simulate it already existing
+        repo_path = tmp_path / "mawall" / "fizzbuzz"
+        repo_path.mkdir(parents=True)
+        
+        result = cloner.clone_student_repo(student, "fizzbuzz")
+        
+        assert result.success is True
+        assert result.already_existed is True
+        assert result.repo_path == repo_path
+        mock_clone.assert_not_called()  # Should not attempt to clone
+    
     @patch('src.gradeit.repo_cloner.GitRunner.clone')
     def test_clone_all_repos(self, mock_clone, cloner, student):
         """Test cloning multiple repos."""
         results = cloner.clone_all_repos([student], "fizzbuzz")
         assert len(results) == 1
         assert results[0].success is True
+        assert results[0].already_existed is False
 
     def test_get_clone_summary(self, cloner, student):
         """Test summary generation."""
