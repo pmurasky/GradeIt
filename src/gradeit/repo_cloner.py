@@ -18,6 +18,7 @@ class CloneResult:
     success: bool
     repo_path: Optional[Path] = None
     error: Optional[str] = None
+    already_existed: bool = False
     
     def __repr__(self) -> str:
         status = "SUCCESS" if self.success else "FAILED"
@@ -79,7 +80,7 @@ class RepositoryCloner:
         repo_path = student_dir / assignment
         
         if not DirectoryManager.prepare_directory(repo_path, force):
-            return CloneResult(student, True, repo_path)
+            return CloneResult(student, True, repo_path, already_existed=True)
         
         return self._perform_clone(student, assignment, repo_path)
 
