@@ -98,6 +98,35 @@ This document outlines language-agnostic coding practices, testing expectations,
 
 ## Testing Standards
 
+### Test-Driven Development (TDD)
+**Before making any change to production code, write a failing test first.**
+
+- **Red-Green-Refactor Cycle**:
+  1. **Red**: Write a test that fails (functionality doesn't exist yet)
+  2. **Green**: Write minimal code to make the test pass
+  3. **Refactor**: Improve code while keeping tests green
+  
+- **Benefits**:
+  - Ensures all production code is testable
+  - Guarantees test coverage from the start
+  - Validates that tests actually test the functionality
+  - Encourages better design and simpler interfaces
+  - Prevents unintended behavior changes
+  
+- **Workflow**:
+  1. Add a new test that describes the desired behavior
+  2. Run the test suite to verify the new test **fails**
+  3. Implement the minimal code to make the test pass
+  4. Run the test suite to verify it **passes**
+  5. Refactor if needed, ensuring tests remain green
+  6. Update existing tests if behavior changes
+
+- **Examples**:
+  - ✅ **Good**: Add `test_clone_skips_existing_repo()`, see it fail, then implement the skip logic
+  - ❌ **Bad**: Implement skip logic, then write tests to match what was built
+  
+**Exception**: Quick bug fixes in legacy code where adding tests first is impractical (still add tests after the fix).
+
 ### Test Coverage Requirements
 - **Minimum Coverage**: 80% overall
 - **Critical Paths**: 100% coverage for:
@@ -188,6 +217,7 @@ def test_should_filter_out_invalid_students(self):
 - [ ] **Commit is focused on single logical change** (micro commit)
 
 ### Testing
+- [ ] **Tests written before implementation (TDD)**
 - [ ] Adequate test coverage (minimum 80%)
 - [ ] Tests are meaningful and not just for coverage
 - [ ] Tests follow naming conventions
