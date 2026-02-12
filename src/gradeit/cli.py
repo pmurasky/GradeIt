@@ -202,8 +202,11 @@ class GradingManager:
                 results.append(result)
                 pbar.update(1)
         
-        success_count = sum(1 for r in results if r.success)
-        click.echo(f"Cloned {success_count}/{len(results)} repositories.")
+        # Only count and report on newly cloned repos (not already existing)
+        new_clones = [r for r in results if not r.already_existed]
+        if new_clones:
+            success_count = sum(1 for r in new_clones if r.success)
+            click.echo(f"Cloned {success_count}/{len(new_clones)} repositories.")
         return results
 
     @staticmethod
