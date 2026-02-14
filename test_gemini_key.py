@@ -9,10 +9,10 @@ from pathlib import Path
 # to strictly test the API connection.
 
 try:
-    import google.generativeai as genai
+    from google import genai
 except ImportError:
-    print("Error: google-generativeai is not installed.")
-    print("Run: pip install google-generativeai")
+    print("Error: google-genai is not installed.")
+    print("Run: pip install google-genai")
     sys.exit(1)
 
 def load_api_key():
@@ -44,32 +44,36 @@ def test_connection():
     print(f"Testing API Key: {api_key[:5]}...{api_key[-4:]}")
     
     try:
-        genai.configure(api_key=api_key)
+        client = genai.Client(api_key=api_key)
         
         print("Listing available models...")
         try:
-            for m in genai.list_models():
-                if 'generateContent' in m.supported_generation_methods:
-                    print(f" - {m.name}")
+            models = client.models.list()
+            print("Available models:")
+            for model in models:
+                print(f" - {model.name}")
         except Exception as e:
              print(f"⚠️ Failed to list models: {e}")
 
-        # Try models seen in the list
-        models_to_try = ["gemini-2.0-flash-lite", "gemini-flash-latest", "gemini-2.5-flash"]
+        # Test with a working model (gemini-2.0-flash or gemini-1.5-flash are commonly available)
+        models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-pro"]
         
         for model_name in models_to_try:
-            print(f"\nAttempting with model: {model_name}...")
+            print(f"\nTesting with model: {model_name}...")
+            
             try:
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content("Hello! Are you working?")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents="Hello! Are you working?"
+                )
                 
                 print(f"\n✅ Success! Gemini responded using {model_name}:")
                 print(f"Response: {response.text}")
-                return # Exit on success
+                return  # Exit on first success
             except Exception as e:
                 print(f"⚠️ Failed with {model_name}: {e}")
-                
-        print("\n❌ All models failed.")
+        
+        print("\n❌ All tested models failed.")
 
     except Exception as e:
         print("\n❌ Connection Failed!")

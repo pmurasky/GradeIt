@@ -116,3 +116,77 @@ class FeedbackGenerator:
             f.write(report + "\n\n")
             
         return file_path
+
+    def replace_student_feedback(self, assignment: str, username: str, new_report: str) -> Path:
+        """
+        Replace a specific student's feedback in the feedback file.
+        
+        Args:
+            assignment: Assignment name
+            username: Student username whose feedback to replace
+            new_report: New report content to replace with
+            
+        Returns:
+            Path to the updated feedback file
+        """
+        file_path = self._get_unique_path(assignment)
+        
+        if not file_path.exists():
+            # If file doesn't exist, just append
+            return self.append_to_file(assignment, new_report)
+        
+        # Read entire file
+        content = file_path.read_text(encoding='utf-8')
+        
+        # Parse into individual student sections
+        updated_content = self._replace_student_section(content, username, new_report)
+        
+        # Write back
+        file_path.write_text(updated_content, encoding='utf-8')
+        
+        return file_path
+    
+    def _replace_student_section(self, content: str, username: str, new_report: str) -> str:
+        """Replace a student's section in the feedback content."""
+        import re
+        
+        # Pattern to match student report header
+        pattern = rf'^# Grading Report: {re.escape(username)}$'
+        
+        lines = content.split('\n')
+        result_lines = []
+        i = 0
+        found = False
+        
+        while i < len(lines):
+            line = lines[i]
+            
+            # Check if this is the start of the target student's section
+            if re.match(pattern, line):
+                found = True
+                # Skip all lines until the next student report or end of file
+                i += 1
+                while i < len(lines):
+                    # Check if we've hit the next student's report
+                    if re.match(r'^# Grading Report: ', lines[i]):
+                        break
+                    i += 1
+                
+                # Insert the new report
+                result_lines.append(new_report.rstrip())
+                result_lines.append('')  # Blank line separator
+                result_lines.append('')
+                # Don't increment i, we want to process the next student's header
+            else:
+                result_lines.append(line)
+                i += 1
+        
+        # If student wasn't found, append at the end
+        if not found:
+            if result_lines and result_lines[-1].strip():
+                result_lines.append('')
+            result_lines.append(new_report.rstrip())
+            result_lines.append('')
+        
+        return '\n'.join(result_lines)
+

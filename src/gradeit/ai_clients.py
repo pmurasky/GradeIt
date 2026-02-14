@@ -6,7 +6,8 @@ Supports generic interface for multiple providers.
 import abc
 import os
 from typing import Optional
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from anthropic import Anthropic
 
 
@@ -23,26 +24,29 @@ class GeminiClient(AIClient):
     """Google Gemini implementation."""
     
     def __init__(self, api_key: str, model_name: str = "gemini-2.0-flash"):
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model_name)
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = model_name
         # Disable safety filters for code analysis tasks
         self.safety_settings = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
+            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
+            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
+            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
         ]
 
     def analyze_code(self, prompt: str) -> str:
         """Analyze code using Gemini."""
         try:
-            response = self.model.generate_content(
-                prompt, 
-                safety_settings=self.safety_settings,
-                generation_config={"response_mime_type": "application/json"}
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    safety_settings=self.safety_settings,
+                    response_mime_type="application/json"
+                )
             )
             # Check if valid text part exists
-            if response.parts:
+            if response.text:
                  return response.text
                  
             # If no text, check the feedback

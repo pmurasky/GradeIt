@@ -2,7 +2,7 @@
 
 # AI Integration
 anthropic>=0.18.0
-google-generativeai>=0.3.0
+google-genai>=0.2.0
 
 # Git operations
 gitpython>=3.1.40

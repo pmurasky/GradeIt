@@ -100,3 +100,71 @@ class TestFeedbackGenerator:
         
         # Original should be untouched
         assert (tmp_path / "assign2_Feedback.md").read_text() == "Old Run"
+
+    def test_replace_student_feedback(self, tmp_path, sample_data):
+        """Test replacing a specific student's feedback in the file."""
+        generator = FeedbackGenerator(str(tmp_path))
+        student1, build, tests, ai = sample_data
+        student2 = Student("group2", "user2", "2024", "cis", "01")
+        
+        # Add initial reports for two students
+        report1 = generator.generate_report(student1, build, tests, ai)
+        report2 = generator.generate_report(student2, build, tests, ai)
+        path = generator.append_to_file("assign3", report1)
+        generator.append_to_file("assign3", report2)
+        
+        # Replace user's feedback with new content
+        new_ai = GradingResult(
+            score=100, 
+            feedback="Updated feedback", 
+            suggestions=["Great work!"], 
+            confidence=1.0
+        )
+        new_report = generator.generate_report(student1, build, tests, new_ai)
+        
+        result_path = generator.replace_student_feedback("assign3", "user", new_report)
+        
+        # Verify the file was updated
+        assert result_path == path
+        content = path.read_text()
+        assert "Updated feedback" in content
+        
+        # Extract user's section and verify it doesn't have old feedback
+        user_section_start = content.find("# Grading Report: user\n")
+        user_section_end = content.find("# Grading Report: user2")
+        user_section = content[user_section_start:user_section_end]
+        assert "Updated feedback" in user_section
+        assert "Good code" not in user_section  # Old feedback should be gone from user's section
+        assert "# Grading Report: user2" in content  # user2 should still be there
+
+    def test_replace_preserves_other_students(self, tmp_path, sample_data):
+        """Test that replacing one student's feedback doesn't affect others."""
+        generator = FeedbackGenerator(str(tmp_path))
+        student1, build, tests, ai = sample_data
+        student2 = Student("group2", "alice", "2024", "cis", "01")
+        student3 = Student("group3", "bob", "2024", "cis", "01")
+        
+        # Add three students
+        report1 = generator.generate_report(student1, build, tests, ai)
+        report2 = generator.generate_report(student2, build, tests, ai)
+        report3 = generator.generate_report(student3, build, tests, ai)
+        path = generator.append_to_file("assign4", report1)
+        generator.append_to_file("assign4", report2)
+        generator.append_to_file("assign4", report3)
+        
+        # Replace middle student (alice)
+        new_ai = GradingResult(score=50, feedback="Needs improvement", suggestions=[], confidence=0.8)
+        new_report = generator.generate_report(student2, build, tests, new_ai)
+        generator.replace_student_feedback("assign4", "alice", new_report)
+        
+        # Verify all three students are still present
+        content = path.read_text()
+        assert "# Grading Report: user" in content
+        assert "# Grading Report: alice" in content
+        assert "# Grading Report: bob" in content
+        
+        # Verify alice has new feedback
+        assert "Needs improvement" in content
+        # Verify others kept original feedback
+        assert content.count("Good code") == 2  # user and bob still have it
+

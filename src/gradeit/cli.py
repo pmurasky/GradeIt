@@ -16,6 +16,7 @@ from .test_parser import TestResultParser, ExecutionSummary
 from .ai_grader import GradingAssistant
 from .ai_clients import AIClientFactory
 from .feedback_generator import FeedbackGenerator, GradingResult
+from .feedback_reader import FeedbackReader
 
 
 @dataclass
@@ -155,6 +156,35 @@ class GradingPipeline:
         path = self.feedback.append_to_file(self.ctx.assignment or "unknown", report)
         click.echo(f"  ✓ Report appended to: {path.name}")
 
+    def process_student_with_replacement(self, student: Student, repo_path: Path):
+        """Run grading pipeline and replace existing feedback for a student."""
+        click.echo(f"Processing {student.username}...")
+        
+        build_result = self.gradle.run_build(repo_path)
+        test_summary = self.parser.parse_results(repo_path)
+        
+        code = SourceCodeReader.read_files(repo_path / "src/main")
+        
+        # Extract context from student code
+        context = {}
+        for filename, content in code.items():
+            header = SourceCodeReader.extract_header_comments(content)
+            if header:
+                context[filename] = header
+
+        # Read solution code if available
+        solution_code = {}
+        if self.ctx.solution:
+            solution_path = Path(self.ctx.solution)
+            if solution_path.exists():
+                solution_code = SourceCodeReader.read_files(solution_path)
+
+        reqs = "Review code for best practices and correctness."
+        ai_result = self.ai.grade_assignment(code, reqs, self.ctx.max_grade, solution_code, context)
+        
+        report = self.feedback.generate_report(student, build_result, test_summary, ai_result)
+        path = self.feedback.replace_student_feedback(self.ctx.assignment or "unknown", student.username, report)
+        click.echo(f"  ✓ Report replaced in: {path.name}")
 
     def process_missing_submission(self, student: Student):
         """Generate a 0-grade report for missing submissions."""
@@ -219,14 +249,47 @@ class GradingManager:
         
         MessageHandler.log(ctx, f"Starting grading for {len(students)} students")
         
+        # Read existing feedback to check who needs grading
+        feedback_reader = FeedbackReader()
+        feedback_path = ctx.output_directory / f"{ctx.assignment}_Feedback.md"
+        existing_feedback = feedback_reader.read_feedback_file(feedback_path)
+        
+        skip_count = 0
+        regrade_count = 0
+        
         with tqdm(total=len(students), desc="Grading", unit="student") as pbar:
             for student in students:
                 pbar.set_postfix_str(f"Student: {student.username}", refresh=True)
                 repo_path = ctx.repositories_directory / student.username / ctx.assignment
+                
+                # Check if student already has feedback
+                student_feedback = feedback_reader.find_student_feedback(student.username, existing_feedback)
+                
+                # Determine if grading should be skipped
+                if student_feedback and not student_feedback.is_missing_repo:
+                    # Student has valid feedback, skip grading
+                    MessageHandler.log(ctx, f"Skipping {student.username} - already graded")
+                    skip_count += 1
+                    pbar.update(1)
+                    continue
+                
+                # Check if this is a re-grade scenario (missing repo that now exists)
+                is_regrade = student_feedback and student_feedback.is_missing_repo and repo_path.exists()
+                if is_regrade:
+                    click.echo(f"  ↻ Re-grading {student.username} (repository now exists)")
+                    regrade_count += 1
+                
+                # Proceed with grading
                 if repo_path.exists():
                      try:
                         MessageHandler.log(ctx, f"Processing {student.username}")
-                        pipeline.process_student(student, repo_path)
+                        
+                        if is_regrade:
+                            # Replace existing feedback instead of appending
+                            pipeline.process_student_with_replacement(student, repo_path)
+                        else:
+                            # Normal processing (append)
+                            pipeline.process_student(student, repo_path)
                      except Exception as e:
                         click.echo(f"  ✗ Error grading {student.username}: {e}")
                         MessageHandler.log(ctx, f"Error: {e}")
@@ -234,6 +297,12 @@ class GradingManager:
                      click.echo(f"  ⚠ Missing repo for {student.username}: Generating 0 grade")
                      pipeline.process_missing_submission(student)
                 pbar.update(1)
+        
+        # Print summary
+        if skip_count > 0:
+            click.echo(f"\nSkipped {skip_count} student(s) with existing grades.")
+        if regrade_count > 0:
+            click.echo(f"Re-graded {regrade_count} student(s) whose repositories were previously missing.")
 
 
 @click.group()

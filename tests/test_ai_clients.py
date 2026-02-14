@@ -14,7 +14,7 @@ class TestAIClientFactory:
         config = Mock()
         config.get.side_effect = lambda k, d=None: 'gemini' if k == 'ai_provider' else 'fake_key' if k == 'gemini_api_key' else d
         
-        with patch('src.gradeit.ai_clients.genai'):
+        with patch('src.gradeit.ai_clients.genai.Client'):
             client = AIClientFactory.create_client(config)
             assert isinstance(client, GeminiClient)
 
