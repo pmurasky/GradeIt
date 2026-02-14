@@ -1,0 +1,51 @@
+# GradeIt Configuration File
+
+# Base directory for the GradeIt project
+base_directory=/media/peter/Linux_AppData/HFCC
+
+current_semester_directory=2026WI-CIS-271-01
+
+# GitLab configuration
+gitlab_host=gitlab.hfcc.edu
+
+# Students file location (relative to base_directory)
+students_file=${base_directory}/${current_semester_directory}/students.txt
+
+# Repositories location (relative to base_directory)
+repositories_directory=${base_directory}/${current_semester_directory}/GradedHomework
+
+# Solution code directory (update this per assignment, relative to base_directory)
+solutions_directory=/media/peter/Linux_AppData/HFCC/2026WI-CIS-271-01/Homework/Solutions
+
+# Output configuration (relative to base_directory)
+output_directory=${base_directory}/${current_semester_directory}/GradedHomework/feedback
+output_filename=${base_directory}/${current_semester_directory}/GradedHomework/feedback/feedback_report.md
+
+# AI Provider configuration
+# Primary provider (used for single-provider mode)
+ai_provider=gemini
+
+# Fallback providers (comma-separated, in order of preference)
+# The system will try each provider in order when quota limits are hit
+ai_providers_fallback=gemini,anthropic,openai
+
+# API Keys for each provider
+gemini_api_key=YOUR_GEMINI_API_KEY_HERE
+gemini_model=gemini-flash-latest
+
+# Get your Anthropic API key from: https://console.anthropic.com/
+anthropic_api_key=YOUR_ANTHROPIC_API_KEY_HERE
+anthropic_model=claude-3-5-sonnet-20241022
+
+# Get your OpenAI API key from: https://platform.openai.com/api-keys
+openai_api_key=YOUR_OPENAI_API_KEY_HERE
+openai_model=gpt-4o-mini
+
+# Gradle configuration
+gradle_timeout=300
+gradle_build_command=./gradlew build
+gradle_test_command=./gradlew test
+
+# Grading configuration (defaults - can be overridden via CLI arguments)
+max_grade=100
+passing_grade=60

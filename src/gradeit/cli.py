@@ -14,7 +14,7 @@ from .repo_cloner import RepositoryCloner, CloneResult
 from .gradle_runner import GradleRunner, BuildResult
 from .test_parser import TestResultParser, ExecutionSummary
 from .ai_grader import GradingAssistant
-from .ai_clients import AIClientFactory
+from .ai_clients import AIClientFactory, FallbackAIClient
 from .feedback_generator import FeedbackGenerator, GradingResult
 from .feedback_reader import FeedbackReader
 
@@ -120,9 +120,10 @@ class GradingPipeline:
         self.gradle = GradleRunner()
         self.parser = TestResultParser()
         
-        # Initialize AI client using factory
-        client = AIClientFactory.create_client(ctx.config)
-        self.ai = GradingAssistant(client)
+        # Initialize AI client with fallback support
+        clients = AIClientFactory.create_fallback_clients(ctx.config)
+        fallback_client = FallbackAIClient(clients)
+        self.ai = GradingAssistant(fallback_client)
         
         self.feedback = FeedbackGenerator(str(ctx.output_directory))
         
